@@ -1,5 +1,6 @@
 """
-SOM Customer Purchase Predictor
+Kohonen Network — Customer Purchase Predictor
+Real dataset: Kaggle — predict-customer-purchase-behavior-dataset (1,500 records)
 Run: streamlit run app.py
 """
 import streamlit as st
@@ -10,14 +11,18 @@ import matplotlib.colors as mcolors
 import sys, os
 
 sys.path.insert(0, os.path.dirname(__file__))
-from som_model import SOMModel, load_data, FEATURE_COLS, FEATURE_LABELS, TARGET_COL
+from minisom_core import MiniSom
+from som_model import SOMModel, load_data, FEATURE_COLS, TARGET_COL
+from sklearn.preprocessing import MinMaxScaler
 
+# ── page config ───────────────────────────────────────────────
 st.set_page_config(
     page_title="Purchase Predictor",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
 
+# ── css ───────────────────────────────────────────────────────
 st.markdown("""
 <style>
 * { font-family: 'Courier New', monospace; }
@@ -26,16 +31,28 @@ section[data-testid="stSidebar"] { display: none; }
 
 .block-container { padding: 2rem 3rem; max-width: 1100px; }
 
-h1 { font-size: 1.4rem; font-weight: 600; letter-spacing: 0.02em;
-     border-bottom: 1px solid #e2e2e2; padding-bottom: 0.6rem;
-     margin-bottom: 1.5rem; }
+h1 {
+    font-size: 1.4rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    border-bottom: 1px solid #e2e2e2;
+    padding-bottom: 0.6rem;
+    margin-bottom: 0.5rem;
+}
 
-h3 { font-size: 0.95rem; font-weight: 600; color: #444;
-     text-transform: uppercase; letter-spacing: 0.08em;
-     margin: 1.8rem 0 0.8rem; }
+h3 {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #444;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    margin: 1.8rem 0 0.8rem;
+}
 
-.stSlider > label, .stSelectbox > label,
-.stRadio > label, .stNumberInput > label {
+.stSlider > label,
+.stSelectbox > label,
+.stRadio > label,
+.stNumberInput > label {
     font-size: 0.82rem !important;
     color: #555 !important;
     letter-spacing: 0.03em;
@@ -54,14 +71,36 @@ h3 { font-size: 0.95rem; font-weight: 600; color: #444;
 }
 .stButton > button:hover { background: #333 !important; }
 
+.stat-row {
+    display: flex;
+    gap: 2rem;
+    margin: 1rem 0 0.4rem;
+}
+.stat {
+    border: 1px solid #e8e8e8;
+    border-radius: 4px;
+    padding: 0.8rem 1.2rem;
+    min-width: 130px;
+}
+.stat-val { font-size: 1.3rem; font-weight: 700; margin: 0; }
+.stat-lbl { font-size: 0.72rem; color: #888; margin: 2px 0 0;
+            text-transform: uppercase; letter-spacing: 0.05em; }
+
+.accuracy-note {
+    font-size: 0.75rem;
+    color: #999;
+    margin: 0 0 1.5rem;
+    line-height: 1.5;
+}
+
 .result-block {
     border: 1px solid #ddd;
     border-radius: 6px;
     padding: 1.5rem 2rem;
     margin-top: 1rem;
 }
-.result-yes  { border-left: 4px solid #2d6a4f; }
-.result-no   { border-left: 4px solid #c0392b; }
+.result-yes { border-left: 4px solid #2d6a4f; }
+.result-no  { border-left: 4px solid #c0392b; }
 
 .result-label {
     font-size: 1.2rem;
@@ -74,21 +113,6 @@ h3 { font-size: 0.95rem; font-weight: 600; color: #444;
     color: #666;
     margin: 0;
 }
-
-.stat-row {
-    display: flex;
-    gap: 2rem;
-    margin-bottom: 1.5rem;
-}
-.stat {
-    border: 1px solid #e8e8e8;
-    border-radius: 4px;
-    padding: 0.8rem 1.2rem;
-    min-width: 120px;
-}
-.stat-val { font-size: 1.3rem; font-weight: 700; margin: 0; }
-.stat-lbl { font-size: 0.72rem; color: #888; margin: 2px 0 0;
-            text-transform: uppercase; letter-spacing: 0.05em; }
 
 .tip {
     background: #f9f9f9;
@@ -105,21 +129,112 @@ hr { border: none; border-top: 1px solid #eee; margin: 2rem 0; }
 """, unsafe_allow_html=True)
 
 
-# ── load & train ──────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+# TRAINING — runs once on first load, cached after that
+# ══════════════════════════════════════════════════════════════
+GRID_SIZE  = 8
+SIGMA      = 1.2
+LR         = 0.5
+ITERATIONS = 15000
+
+
 @st.cache_resource(show_spinner=False)
 def get_model():
-    df    = load_data("customer_purchase_data.csv")
-    model = SOMModel(grid_size=10, sigma=1.5, lr=0.5, iterations=5000)
-    model.train(df)
+    df = load_data("customer_purchase_data.csv")
+
+    # ── live training progress ────────────────────────────────
+    st.markdown("<h1>Kohonen Network — Customer Purchase Prediction</h1>",
+                unsafe_allow_html=True)
+    st.markdown("<h3>Training network</h3>", unsafe_allow_html=True)
+    st.markdown(
+        f'<p style="font-size:0.78rem;color:#888;margin-bottom:0.8rem;">'
+        f'Grid: {GRID_SIZE}×{GRID_SIZE} &nbsp;·&nbsp; '
+        f'Sigma: {SIGMA} &nbsp;·&nbsp; '
+        f'Learning rate: {LR} &nbsp;·&nbsp; '
+        f'Iterations: {ITERATIONS:,}'
+        f'</p>',
+        unsafe_allow_html=True,
+    )
+
+    bar  = st.progress(0, text="Initialising weights...")
+    note = st.empty()
+
+    # scale data
+    X      = df[FEATURE_COLS].values.astype(np.float32)
+    y      = df[TARGET_COL].values
+    scaler = MinMaxScaler()
+    X_s    = scaler.fit_transform(X)
+
+    # build and train SOM
+    som = MiniSom(GRID_SIZE, GRID_SIZE, len(FEATURE_COLS),
+                  sigma=SIGMA, learning_rate=LR, random_seed=42)
+    som.random_weights_init(X_s)
+
+    rng          = np.random.RandomState(42)
+    update_every = max(1, ITERATIONS // 60)
+
+    for t in range(ITERATIONS):
+        x = X_s[rng.randint(len(X_s))]
+        som.update(x, som.winner(x), t, ITERATIONS)
+
+        if t % update_every == 0 or t == ITERATIONS - 1:
+            pct       = (t + 1) / ITERATIONS
+            sigma_now = SIGMA * np.exp(-t / ITERATIONS)
+            lr_now    = LR    * np.exp(-t / ITERATIONS)
+            bar.progress(
+                pct,
+                text=(f"Iteration {t+1:,} / {ITERATIONS:,}  "
+                      f"·  sigma: {sigma_now:.3f}  "
+                      f"·  lr: {lr_now:.3f}")
+            )
+
+    bar.progress(1.0, text=f"Training complete — {ITERATIONS:,} iterations.")
+    note.markdown(
+        '<p style="font-size:0.78rem;color:#2d6a4f;margin-top:0.3rem;">'
+        'Network trained. Labelling cells...</p>',
+        unsafe_allow_html=True,
+    )
+
+    # ── build model wrapper ───────────────────────────────────
+    model         = SOMModel(grid_size=GRID_SIZE, sigma=SIGMA,
+                             lr=LR, iterations=ITERATIONS)
+    model.scaler  = scaler
+    model.som     = som
+    model.qe      = som.quantization_error(X_s)
+
+    # label each cell by majority vote
+    win_map = som.win_map(X_s)
+    for cell, indices in win_map.items():
+        cell_y = [y[i] for i in indices]
+        rate   = float(np.mean(cell_y))
+        model.cell_rate[cell]  = round(rate, 4)
+        model.cell_label[cell] = int(rate >= 0.5)
+        model.cell_count[cell] = len(cell_y)
+
+    # fill empty cells from nearest labelled neighbour
+    for i in range(GRID_SIZE):
+        for j in range(GRID_SIZE):
+            if (i, j) not in model.cell_label:
+                model.cell_label[(i, j)] = model._nearest_label(i, j)
+                model.cell_rate[(i, j)]  = model._nearest_rate(i, j)
+                model.cell_count[(i, j)] = 0
+
+    note.markdown(
+        '<p style="font-size:0.78rem;color:#2d6a4f;margin-top:0.3rem;">'
+        'Ready.</p>',
+        unsafe_allow_html=True,
+    )
+
     return model, df
 
-with st.spinner("Training SOM..."):
-    model, df = get_model()
 
+model, df = get_model()
 acc = model.accuracy(df)
 
 
-# ── matplotlib style ──────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════
+# MATPLOTLIB HELPERS
+# ══════════════════════════════════════════════════════════════
 def base_fig(w=5.5, h=4.5):
     fig, ax = plt.subplots(figsize=(w, h))
     fig.patch.set_facecolor("white")
@@ -143,7 +258,7 @@ def plot_umatrix(bmu=None):
     ax.set_yticks(range(0, g, 2))
     if bmu:
         ax.plot(bmu[1], bmu[0], "x", color="#c0392b",
-                markersize=14, markeredgewidth=2.5, label="input")
+                markersize=14, markeredgewidth=2.5)
     ax.set_title("U-Matrix", fontsize=9, color="#444", pad=8,
                  fontfamily="monospace")
     plt.tight_layout()
@@ -164,12 +279,11 @@ def plot_rate_heatmap(bmu=None):
     ax.set_yticks(range(0, g, 2))
     for i in range(g):
         for j in range(g):
-            v = grid[i, j]
-            ax.text(j, i, f"{v:.1f}", ha="center", va="center",
+            ax.text(j, i, f"{grid[i,j]:.1f}", ha="center", va="center",
                     fontsize=5.5, color="#333")
     if bmu:
         ax.plot(bmu[1], bmu[0], "x", color="#c0392b",
-                markersize=14, markeredgewidth=2.5, label="input")
+                markersize=14, markeredgewidth=2.5)
     ax.set_title("Purchase rate per cell", fontsize=9, color="#444", pad=8,
                  fontfamily="monospace")
     plt.tight_layout()
@@ -177,7 +291,7 @@ def plot_rate_heatmap(bmu=None):
 
 
 # ══════════════════════════════════════════════════════════════
-# HEADER
+# HEADER + STATS
 # ══════════════════════════════════════════════════════════════
 st.markdown("<h1>Kohonen Network — Customer Purchase Prediction</h1>",
             unsafe_allow_html=True)
@@ -187,15 +301,18 @@ st.markdown(f"""
     <div class="stat">
         <p class="stat-val">1,500</p>
         <p class="stat-lbl">training records</p>
-        <p class="stat-lbl">from kaggle</p>
     </div>
     <div class="stat">
-        <p class="stat-val">10 x 10</p>
+        <p class="stat-val">{GRID_SIZE} x {GRID_SIZE}</p>
         <p class="stat-lbl">SOM grid</p>
     </div>
     <div class="stat">
+        <p class="stat-val">{ITERATIONS:,}</p>
+        <p class="stat-lbl">iterations</p>
+    </div>
+    <div class="stat">
         <p class="stat-val">{acc:.1%}</p>
-        <p class="stat-lbl">accuracy</p>
+        <p class="stat-lbl">accuracy (train set)</p>
     </div>
     <div class="stat">
         <p class="stat-val">{model.qe:.3f}</p>
@@ -203,6 +320,16 @@ st.markdown(f"""
     </div>
 </div>
 """, unsafe_allow_html=True)
+
+st.markdown(
+    '<p class="accuracy-note">'
+    'Accuracy is measured on the same 1,500 records the network trained on '
+    'not on unseen data. It tells you how well the SOM organised the training set, '
+    'not how it will perform on new customers. '
+    'Real-world performance may be lower. '
+    '</p>',
+    unsafe_allow_html=True,
+)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -213,12 +340,12 @@ st.markdown("<h3>Customer Profile</h3>", unsafe_allow_html=True)
 col_a, col_b = st.columns(2, gap="large")
 
 with col_a:
-    age              = st.slider("Age", 18, 70, 35)
-    annual_income    = st.number_input("Annual Income ($)",
-                                        10000, 200000, 60000, step=1000)
-    num_purchases    = st.slider("Number of past purchases", 0, 50, 5)
-    time_on_site     = st.slider("Time spent on website (min)",
-                                  0.0, 60.0, 10.0, step=0.5)
+    age           = st.slider("Age", 18, 70, 35)
+    annual_income = st.number_input("Annual Income ($)",
+                                     10000, 200000, 60000, step=1000)
+    num_purchases = st.slider("Number of past purchases", 0, 50, 5)
+    time_on_site  = st.slider("Time spent on website (min)",
+                               0.0, 60.0, 10.0, step=0.5)
 
 with col_b:
     gender           = st.radio("Gender", [0, 1],
@@ -227,10 +354,10 @@ with col_b:
     loyalty_program  = st.radio("Loyalty program member", [0, 1],
                                  format_func=lambda x: "No" if x == 0 else "Yes",
                                  horizontal=True)
-    product_category = st.selectbox("Product category", [0, 1, 2, 3, 4],
-                                     format_func=lambda x:
-                                     ["Electronics", "Clothing",
-                                      "Home Goods", "Beauty", "Sports"][x])
+    product_category = st.selectbox(
+        "Product category", [0, 1, 2, 3, 4],
+        format_func=lambda x: ["Electronics", "Clothing",
+                                "Home Goods", "Beauty", "Sports"][x])
     discounts        = st.slider("Discounts availed", 0, 10, 2)
 
 predict_btn = st.button("Run prediction")
@@ -254,50 +381,59 @@ if predict_btn:
 
     st.markdown("<hr>", unsafe_allow_html=True)
 
+    # ── result card ───────────────────────────────────────────
     if result["label"] == 1:
         st.markdown(f"""
         <div class="result-block result-yes">
-            <p class="result-label" style="color:#2d6a4f">Will Purchase</p>
+            <p class="result-label" style="color:#2d6a4f">
+                {result['prediction']}
+            </p>
             <p class="result-sub">
-                Purchase probability: {result['probability']:.1%} &nbsp;|&nbsp;
-                BMU cell: {result['bmu'][0]}, {result['bmu'][1]}
+                Purchase probability: {result['probability']:.1%}
+                &nbsp;·&nbsp;
+                BMU cell: row {result['bmu'][0]}, col {result['bmu'][1]}
             </p>
         </div>""", unsafe_allow_html=True)
     else:
         st.markdown(f"""
         <div class="result-block result-no">
-            <p class="result-label" style="color:#c0392b">Will Not Purchase</p>
+            <p class="result-label" style="color:#c0392b">
+                {result['prediction']}
+            </p>
             <p class="result-sub">
-                Purchase probability: {result['probability']:.1%} &nbsp;|&nbsp;
-                BMU cell: {result['bmu'][0]}, {result['bmu'][1]}
+                Purchase probability: {result['probability']:.1%}
+                &nbsp;·&nbsp;
+                BMU cell: row {result['bmu'][0]}, col {result['bmu'][1]}
             </p>
         </div>""", unsafe_allow_html=True)
 
-    st.markdown("<h3>Network Output</h3>", unsafe_allow_html=True)
-    st.caption("Red cross marks where this customer lands on the trained SOM grid.")
+    # ── SOM maps ──────────────────────────────────────────────
+    st.markdown("<h3>Network output</h3>", unsafe_allow_html=True)
+    st.markdown(
+        '<p style="font-size:0.78rem;color:#888;margin-bottom:0.8rem;">'
+        'Red cross marks the cell this customer was mapped to on the trained grid.'
+        '</p>',
+        unsafe_allow_html=True,
+    )
 
     m1, m2 = st.columns(2, gap="large")
     with m1:
         st.pyplot(plot_umatrix(bmu=result["bmu"]))
-        st.caption("Dark areas are dense clusters. Light areas are cluster boundaries.")
+        st.markdown(
+            '<p style="font-size:0.75rem;color:#888;">'
+            'Dark cells are dense clusters of similar customers. '
+            'Light cells are boundaries between clusters.'
+            '</p>',
+            unsafe_allow_html=True,
+        )
     with m2:
         st.pyplot(plot_rate_heatmap(bmu=result["bmu"]))
-        st.caption("Darker green means higher purchase rate in that region.")
+        st.markdown(
+            '<p style="font-size:0.75rem;color:#888;">'
+            'Each number is the fraction of training customers in that cell '
+            'who purchased. Darker green = higher purchase rate.'
+            '</p>',
+            unsafe_allow_html=True,
+        )
 
-    st.markdown("<h3>Notes</h3>", unsafe_allow_html=True)
-    tips = []
-    if loyalty_program == 0:
-        tips.append("Not enrolled in loyalty program.")
-    if discounts == 0:
-        tips.append("No discounts used — consider offering one.")
-    if num_purchases == 0:
-        tips.append("First-time buyer — higher dropout risk.")
-    if time_on_site < 3:
-        tips.append("Very short session — low engagement.")
-    if annual_income < 30000:
-        tips.append("Lower income range — price may be a barrier.")
-    if not tips:
-        tips.append("Strong profile across all features.")
-
-    for tip in tips:
-        st.markdown(f'<div class="tip">{tip}</div>', unsafe_allow_html=True)
+   
