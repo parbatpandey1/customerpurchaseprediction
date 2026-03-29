@@ -314,10 +314,6 @@ st.markdown(f"""
         <p class="stat-val">{acc:.1%}</p>
         <p class="stat-lbl">accuracy (train set)</p>
     </div>
-    <div class="stat">
-        <p class="stat-val">{model.qe:.3f}</p>
-        <p class="stat-lbl">quantisation error</p>
-    </div>
 </div>
 """, unsafe_allow_html=True)
 
