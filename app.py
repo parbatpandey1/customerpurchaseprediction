@@ -144,7 +144,6 @@ def plot_umatrix(bmu=None):
     if bmu:
         ax.plot(bmu[1], bmu[0], "x", color="#c0392b",
                 markersize=14, markeredgewidth=2.5, label="input")
-        ax.legend(fontsize=8, framealpha=0.8)
     ax.set_title("U-Matrix", fontsize=9, color="#444", pad=8,
                  fontfamily="monospace")
     plt.tight_layout()
@@ -171,7 +170,6 @@ def plot_rate_heatmap(bmu=None):
     if bmu:
         ax.plot(bmu[1], bmu[0], "x", color="#c0392b",
                 markersize=14, markeredgewidth=2.5, label="input")
-        ax.legend(fontsize=8, framealpha=0.8)
     ax.set_title("Purchase rate per cell", fontsize=9, color="#444", pad=8,
                  fontfamily="monospace")
     plt.tight_layout()
