@@ -290,32 +290,6 @@ def plot_rate_heatmap(bmu=None):
     return fig
 
 
-# ══════════════════════════════════════════════════════════════
-# HEADER + STATS
-# ══════════════════════════════════════════════════════════════
-st.markdown("<h1>Kohonen Network — Customer Purchase Prediction</h1>",
-            unsafe_allow_html=True)
-
-st.markdown(f"""
-<div class="stat-row">
-    <div class="stat">
-        <p class="stat-val">1,500</p>
-        <p class="stat-lbl">training records</p>
-    </div>
-    <div class="stat">
-        <p class="stat-val">{GRID_SIZE} x {GRID_SIZE}</p>
-        <p class="stat-lbl">SOM grid</p>
-    </div>
-    <div class="stat">
-        <p class="stat-val">{ITERATIONS:,}</p>
-        <p class="stat-lbl">iterations</p>
-    </div>
-    <div class="stat">
-        <p class="stat-val">{acc:.1%}</p>
-        <p class="stat-lbl">accuracy (train set)</p>
-    </div>
-</div>
-""", unsafe_allow_html=True)
 
 st.markdown(
     '<p class="accuracy-note">'
